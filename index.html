@@ -6,7 +6,7 @@
         body { margin: 0; background: transparent; display: flex; justify-content: center; align-items: flex-end; height: 100vh; overflow: hidden; }
         .container { position: relative; height: 95vh; }
         img { display: none; height: 100%; width: auto; object-fit: contain; }
-        #oc { display: block; } /* 初期状態は目開・口閉 */
+        #oc { display: block; } /* 初期状態 */
     </style>
 </head>
 <body>
@@ -21,11 +21,10 @@
             cc: document.getElementById('cc')
         };
         
-        let isDetected = false; // 音を検知しているか
-        let isTalking = false;  // パクパクのアニメーション状態
-        let isBlinking = false; // 瞬き状態
+        let isDetected = false; 
+        let isTalking = false;  
+        let isBlinking = false; 
 
-        // 画像表示更新
         function update() {
             for (let k in imgs) imgs[k].style.display = 'none';
             if (isBlinking) {
@@ -35,20 +34,18 @@
             }
         }
 
-        // --- 0.5秒おきの口パクタイマー ---
+        // --- 超高速口パク：100ms（0.1秒）間隔 ---
         setInterval(() => {
             if (isDetected) {
                 isTalking = !isTalking;
                 update();
-            } else {
-                if (isTalking) {
-                    isTalking = false;
-                    update();
-                }
+            } else if (isTalking) {
+                isTalking = false;
+                update();
             }
-        }, 500);
+        }, 100);
 
-        // --- 瞬き（15秒周期） ---
+        // --- 瞬き：15秒周期 ---
         function runBlink() {
             isBlinking = true; update();
             setTimeout(() => {
@@ -64,11 +61,15 @@
         }
         runBlink();
 
-        // --- 音声解析 ---
+        // --- 音声解析（自動起動リトライ付き） ---
         async function initAudio() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // ブラウザのサスペンド状態を解除
+                if (ctx.state === 'suspended') await ctx.resume();
+
                 const ana = ctx.createAnalyser();
                 ctx.createMediaStreamSource(stream).connect(ana);
                 ana.fftSize = 256;
@@ -77,17 +78,19 @@
                 function check() {
                     ana.getByteFrequencyData(data);
                     let vol = data.reduce((a, b) => a + b) / data.length;
-                    isDetected = vol > 10; // 感度調整。必要ならこの数字をいじってください
+                    isDetected = vol > 8; // 感度（必要ならここを調整）
                     requestAnimationFrame(check);
                 }
                 check();
+                console.log("Audio started successfully");
             } catch (e) {
-                // 自動起動失敗時はクリック待機
+                console.log("Waiting for user interaction...");
+                // 失敗した場合はクリックされた時に再試行
                 window.onclick = () => { initAudio(); window.onclick = null; };
             }
         }
 
-        // 読み込み時に実行
+        // ページ読み込み時に実行
         initAudio();
     </script>
 </body>
