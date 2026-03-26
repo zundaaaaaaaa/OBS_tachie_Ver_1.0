@@ -6,13 +6,10 @@
         body { margin: 0; background: transparent; display: flex; justify-content: center; align-items: flex-end; height: 100vh; overflow: hidden; }
         .container { position: relative; height: 95vh; }
         img { display: none; height: 100%; width: auto; object-fit: contain; }
-        /* 初期状態で02（目開・口閉）だけ表示 */
-        #oc { display: block; }
-        #debug { position: absolute; top: 10px; left: 10px; color: #0f0; background: rgba(0,0,0,0.7); padding: 5px; font-family: monospace; z-index: 100; }
+        #oc { display: block; } /* 初期状態は目開・口閉 */
     </style>
 </head>
 <body>
-    <div id="debug">Click to Start</div>
     <div class="container">
         <img src="01.png" id="oo"> <img src="02.png" id="oc"> <img src="03.png" id="co"> <img src="04.png" id="cc"> </div>
 
@@ -23,46 +20,46 @@
             co: document.getElementById('co'),
             cc: document.getElementById('cc')
         };
-        const dbg = document.getElementById('debug');
         
-        let isTalking = false; // 口の状態
-        let isBlinking = false; // 目の状態
+        let isDetected = false; // 音を検知しているか
+        let isTalking = false;  // パクパクのアニメーション状態
+        let isBlinking = false; // 瞬き状態
 
-        // 画像更新関数（ここが心臓部です）
-        function updateImage() {
-            // 一旦全部消す
-            for (let key in imgs) {
-                if (imgs[key]) imgs[key].style.display = 'none';
-            }
-
-            // 条件分岐で表示する画像を選ぶ
+        // 画像表示更新
+        function update() {
+            for (let k in imgs) imgs[k].style.display = 'none';
             if (isBlinking) {
-                // 目を閉じている時
-                isTalking ? imgs.co.style.display = 'block' : imgs.cc.style.display = 'block';
+                (isDetected && isTalking) ? imgs.co.style.display = 'block' : imgs.cc.style.display = 'block';
             } else {
-                // 目を開けている時
-                isTalking ? imgs.oo.style.display = 'block' : imgs.oc.style.display = 'block';
+                (isDetected && isTalking) ? imgs.oo.style.display = 'block' : imgs.oc.style.display = 'block';
             }
         }
 
-        // --- 瞬き：15秒周期（30%で2連） ---
+        // --- 0.5秒おきの口パクタイマー ---
+        setInterval(() => {
+            if (isDetected) {
+                isTalking = !isTalking;
+                update();
+            } else {
+                if (isTalking) {
+                    isTalking = false;
+                    update();
+                }
+            }
+        }, 500);
+
+        // --- 瞬き（15秒周期） ---
         function runBlink() {
-            isBlinking = true;
-            updateImage();
-            
+            isBlinking = true; update();
             setTimeout(() => {
-                isBlinking = false;
-                updateImage();
-                
-                // 2回まばたき判定
+                isBlinking = false; update();
                 if (Math.random() < 0.3) {
                     setTimeout(() => {
-                        isBlinking = true; updateImage();
-                        setTimeout(() => { isBlinking = false; updateImage(); }, 150);
+                        isBlinking = true; update();
+                        setTimeout(() => { isBlinking = false; update(); }, 150);
                     }, 200);
                 }
             }, 150);
-            
             setTimeout(runBlink, 15000);
         }
         runBlink();
@@ -71,45 +68,27 @@
         async function initAudio() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const analyser = audioContext.createAnalyser();
-                const source = audioContext.createMediaStreamSource(stream);
-                
-                analyser.fftSize = 256;
-                source.connect(analyser);
-                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const ana = ctx.createAnalyser();
+                ctx.createMediaStreamSource(stream).connect(ana);
+                ana.fftSize = 256;
+                const data = new Uint8Array(ana.frequencyBinCount);
 
                 function check() {
-                    analyser.getByteFrequencyData(dataArray);
-                    let sum = 0;
-                    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-                    let volume = sum / dataArray.length;
-
-                    dbg.innerText = "Vol: " + Math.floor(volume);
-
-                    // 感度設定：ここの数字(8)を調整
-                    let nowTalking = volume > 8; 
-
-                    if (nowTalking !== isTalking) {
-                        isTalking = nowTalking;
-                        updateImage(); // 状態が変わった瞬間だけ更新
-                    }
+                    ana.getByteFrequencyData(data);
+                    let vol = data.reduce((a, b) => a + b) / data.length;
+                    isDetected = vol > 10; // 感度調整。必要ならこの数字をいじってください
                     requestAnimationFrame(check);
                 }
                 check();
-                dbg.style.color = "#0f0";
-            } catch (err) {
-                dbg.innerText = "Error: " + err;
-                dbg.style.color = "red";
+            } catch (e) {
+                // 自動起動失敗時はクリック待機
+                window.onclick = () => { initAudio(); window.onclick = null; };
             }
         }
 
-        window.onclick = () => {
-            initAudio();
-            window.onclick = null;
-            dbg.innerText = "Audio Active";
-        };
+        // 読み込み時に実行
+        initAudio();
     </script>
 </body>
 </html>
-
