@@ -3,71 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        body { margin: 0; background: transparent; display: flex; justify-content: center; align-items: flex-end; height: 100vh; overflow: hidden; font-family: sans-serif; }
-        .container { position: relative; height: 90vh; }
-        img { display: none; height: 100%; width: auto; }
-        img.active { display: block; }
-        /* デバッグ用数値表示 */
-        #debug { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.5); padding: 5px; font-size: 20px; z-index: 100; }
+        body { margin: 0; background: transparent; display: flex; justify-content: center; align-items: flex-end; height: 100vh; overflow: hidden; }
+        .container { position: relative; height: 95vh; }
+        img { display: none; height: 100%; width: auto; object-fit: contain; }
+        /* 初期状態で02（目開・口閉）だけ表示 */
+        #oc { display: block; }
+        #debug { position: absolute; top: 10px; left: 10px; color: #0f0; background: rgba(0,0,0,0.7); padding: 5px; font-family: monospace; z-index: 100; }
     </style>
 </head>
 <body>
-    <div id="debug">クリックして開始 (Vol: 0)</div>
+    <div id="debug">Click to Start</div>
     <div class="container">
-        <img src="01.png" id="oo" class="active">
-        <img src="02.png" id="oc">
-        <img src="03.png" id="co">
-        <img src="04.png" id="cc">
-    </div>
+        <img src="01.png" id="oo"> <img src="02.png" id="oc"> <img src="03.png" id="co"> <img src="04.png" id="cc"> </div>
 
     <script>
-        const el = { oo, oc, co, cc }, dbg = document.getElementById('debug');
-        let isT = false, isB = false;
-
-        const update = () => {
-            for (let k in el) el[k].style.display = 'none';
-            let s = isB ? (isT ? 'co' : 'cc') : (isT ? 'oo' : 'oc');
-            el[s].style.display = 'block';
+        const imgs = {
+            oo: document.getElementById('oo'),
+            oc: document.getElementById('oc'),
+            co: document.getElementById('co'),
+            cc: document.getElementById('cc')
         };
+        const dbg = document.getElementById('debug');
+        
+        let isTalking = false; // 口の状態
+        let isBlinking = false; // 目の状態
 
-        const blink = () => {
-            isB = true; update();
-            setTimeout(() => { isB = false; update(); }, 150);
-            setTimeout(blink, 15000);
-        };
-        blink();
+        // 画像更新関数（ここが心臓部です）
+        function updateImage() {
+            // 一旦全部消す
+            for (let key in imgs) {
+                if (imgs[key]) imgs[key].style.display = 'none';
+            }
 
-        async function init() {
+            // 条件分岐で表示する画像を選ぶ
+            if (isBlinking) {
+                // 目を閉じている時
+                isTalking ? imgs.co.style.display = 'block' : imgs.cc.style.display = 'block';
+            } else {
+                // 目を開けている時
+                isTalking ? imgs.oo.style.display = 'block' : imgs.oc.style.display = 'block';
+            }
+        }
+
+        // --- 瞬き：15秒周期（30%で2連） ---
+        function runBlink() {
+            isBlinking = true;
+            updateImage();
+            
+            setTimeout(() => {
+                isBlinking = false;
+                updateImage();
+                
+                // 2回まばたき判定
+                if (Math.random() < 0.3) {
+                    setTimeout(() => {
+                        isBlinking = true; updateImage();
+                        setTimeout(() => { isBlinking = false; updateImage(); }, 150);
+                    }, 200);
+                }
+            }, 150);
+            
+            setTimeout(runBlink, 15000);
+        }
+        runBlink();
+
+        // --- 音声解析 ---
+        async function initAudio() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const ctx = new AudioContext();
-                const src = ctx.createMediaStreamSource(stream);
-                const ana = ctx.createAnalyser();
-                ana.fftSize = 256;
-                src.connect(ana);
-                const d = new Uint8Array(ana.frequencyBinCount);
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioContext.createAnalyser();
+                const source = audioContext.createMediaStreamSource(stream);
+                
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                const loop = () => {
-                    ana.getByteFrequencyData(d);
-                    const vol = d.reduce((a, b) => a + b) / d.length;
-                    
-                    // 数値を画面に表示
-                    dbg.innerText = "Vol: " + Math.floor(vol);
+                function check() {
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                    let volume = sum / dataArray.length;
 
-                    // ここで反応する数値を調整（5以下にするとノイズで開きっぱなしになるかも）
-                    const nowT = vol > 5; 
-                    if (nowT !== isT) { isT = nowT; update(); }
-                    requestAnimationFrame(loop);
-                };
-                loop();
-                dbg.style.color = "#0f0"; // 成功したら緑に
-            } catch (e) {
-                dbg.innerText = "エラー: " + e.message;
+                    dbg.innerText = "Vol: " + Math.floor(volume);
+
+                    // 感度設定：ここの数字(8)を調整
+                    let nowTalking = volume > 8; 
+
+                    if (nowTalking !== isTalking) {
+                        isTalking = nowTalking;
+                        updateImage(); // 状態が変わった瞬間だけ更新
+                    }
+                    requestAnimationFrame(check);
+                }
+                check();
+                dbg.style.color = "#0f0";
+            } catch (err) {
+                dbg.innerText = "Error: " + err;
                 dbg.style.color = "red";
             }
         }
 
-        window.onclick = () => { init(); window.onclick = null; };
+        window.onclick = () => {
+            initAudio();
+            window.onclick = null;
+            dbg.innerText = "Audio Active";
+        };
     </script>
 </body>
 </html>
+
