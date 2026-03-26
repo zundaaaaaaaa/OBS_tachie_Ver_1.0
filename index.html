@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Voice Lip Sync</title>
+    <style>
+        body { margin: 0; background: transparent; display: flex; justify-content: center; align-items: flex-end; height: 100vh; overflow: hidden; }
+        .container { position: relative; height: 90vh; }
+        img { display: none; height: 100%; width: auto; }
+        img.active { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="01.png" id="oo" class="active">
+        <img src="02.png" id="oc">
+        <img src="03.png" id="co">
+        <img src="04.png" id="cc">
+    </div>
+
+    <script>
+        const el = { oo, oc, co, cc };
+        let isT = false, isB = false;
+
+        const update = () => {
+            for (let k in el) el[k].style.display = 'none';
+            let s = isB ? (isT ? 'co' : 'cc') : (isT ? 'oo' : 'oc');
+            el[s].style.display = 'block';
+        };
+
+        // 瞬き（15秒に1回、30%で2連）
+        const blink = () => {
+            isB = true; update();
+            setTimeout(() => {
+                isB = false; update();
+                if (Math.random() < 0.3) {
+                    setTimeout(() => { isB = true; update(); setTimeout(() => { isB = false; update(); }, 150); }, 200);
+                }
+            }, 150);
+            setTimeout(blink, 15000);
+        };
+        blink();
+
+        // 音声解析
+        async function init() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const ctx = new AudioContext();
+                const src = ctx.createMediaStreamSource(stream);
+                const ana = ctx.createAnalyser();
+                ana.fftSize = 256;
+                src.connect(ana);
+                const d = new Uint8Array(ana.frequencyBinCount);
+
+                const loop = () => {
+                    ana.getByteFrequencyData(d);
+                    const vol = d.reduce((a, b) => a + b) / d.length;
+                    const nowT = vol > 12; // 感度：12を下げるとより敏感になります
+                    if (nowT !== isT) { isT = nowT; update(); }
+                    requestAnimationFrame(loop);
+                };
+                loop();
+            } catch (e) { console.error(e); }
+        }
+
+        // GitHub PagesなどのURLで開く場合、一度画面をクリックするとマイクが開始されます
+        window.onclick = () => { init(); window.onclick = null; };
+    </script>
+</body>
+</html>
